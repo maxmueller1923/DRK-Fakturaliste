@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#E30613">
+<title>DRK Fakturaliste</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #F7F7F8; -webkit-tap-highlight-color: transparent; }
+  #root { max-width: 430px; margin: 0 auto; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+<script type="text/babel">
+const { useState, useRef, useEffect } = React;
+
+// ── Color tokens ──
+const C = {
+  bg: "#F7F7F8", card: "#FFFFFF", red: "#E30613", redDark: "#B8050F",
+  redLight: "#FDE8E9", text: "#1A1A1A", textSec: "#6B6B6B",
+  border: "#E5E5E5", accent: "#2D6A4F", accentLight: "#D8F3DC",
+  shadow: "0 2px 12px rgba(0,0,0,0.06)",
+};
+
+const font = `"SF Pro Display","SF Pro Text",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif`;
+
+const inputStyle = {
+  width:"100%", padding:"14px 16px", fontSize:16, fontFamily:font,
+  border:`1.5px solid ${C.border}`, borderRadius:12, background:C.card,
+  color:C.text, outline:"none", transition:"border-color 0.2s, box-shadow 0.2s",
+  boxSizing:"border-box", WebkitAppearance:"none",
+};
+const labelStyle = {
+  display:"block", fontSize:13, fontWeight:600, color:C.textSec,
+  marginBottom:6, letterSpacing:"0.02em", textTransform:"uppercase", fontFamily:font,
+};
+const btnPrimary = {
+  width:"100%", padding:"16px", fontSize:17, fontWeight:700, fontFamily:font,
+  color:"#fff", background:C.red, border:"none", borderRadius:14, cursor:"pointer",
+  letterSpacing:"0.01em", transition:"background 0.2s, transform 0.1s",
+  WebkitTapHighlightColor:"transparent",
+};
+const btnSecondary = { ...btnPrimary, background: C.accent };
+
+const SCHICHTEN = ["1A","1B","1C","1D","1E","1F","1N","1P","1T","1V","1U","1Z"];
+
+// ── PDF Generation with jsPDF (exact replica of original Fakturaliste) ──
+const loadJsPDF = () => new Promise((resolve, reject) => {
+  if (window.jspdf) return resolve();
+  const s = document.createElement("script");
+  s.src = "https://unpkg.com/jspdf@2.5.1/dist/jspdf.umd.min.js";
+  s.onload = resolve; s.onerror = reject;
+  document.head.appendChild(s);
+});
+
+const generatePDF = async (schicht, fahrzeug, besatzung, entries) => {
+  await loadJsPDF();
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const W = 210, H = 297;
+  const mL = 18, mR = 18;
+  const usable = W - mL - mR;
+  const now = new Date();
+  const dateStr = now.toLocaleDateString("de-DE",{day:"2-digit",month:"2-digit",year:"numeric"});
+
+  // Helper: draw a red cross (simplified DRK logo)
+  const drawCross = (x, y, size) => {
+    const arm = size * 0.3;
+    const off = (size - arm) / 2;
+    doc.setFillColor(227, 6, 19);
+    // vertical bar
+    doc.rect(x + off, y, arm, size, "F");
+    // horizontal bar
+    doc.rect(x, y + off, size, arm, "F");
+  };
+
+  // ── Header area ──
+  const logoSize = 22;
+  drawCross(mL, 14, logoSize);
+
+  // "Deutsches Rotes Kreuz" text next to cross
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(14);
+  doc.setTextColor(0, 0, 0);
+  doc.text("Deutsches", mL + logoSize + 4, 20);
+  doc.text("Rotes", mL + logoSize + 4, 26);
+  doc.text("Kreuz", mL + logoSize + 4, 32);
+
+  // Right-side header text
+  const headerX = mL + 70;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  doc.text("DRK-Kreisverband", headerX, 20);
+  doc.text("Karlsruhe e.V.", headerX, 25);
+  doc.text("Krankentransport / Rettungsdienst", headerX, 30);
+
+  // ── Info row: Datum | FZG | Schichtbezeichnung ──
+  const infoY = 42;
+  const infoH = 12;
+  const col1 = 50, col2 = 45, col3 = usable - col1 - col2;
+  doc.setDrawColor(0, 0, 0);
+  doc.setLineWidth(0.4);
+
+  // Datum box
+  doc.rect(mL, infoY, col1, infoH);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.text("Datum:", mL + 2, infoY + 4.5);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  doc.text(dateStr, mL + 2, infoY + 10);
+
+  // FZG box
+  doc.rect(mL + col1, infoY, col2, infoH);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.text("FZG:", mL + col1 + 2, infoY + 4.5);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  doc.text(fahrzeug || "", mL + col1 + 2, infoY + 10);
+
+  // Schichtbezeichnung box
+  doc.rect(mL + col1 + col2, infoY, col3, infoH);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.text("Schichtbezeichnung:", mL + col1 + col2 + 2, infoY + 4.5);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  doc.text(schicht || "", mL + col1 + col2 + 2, infoY + 10);
+
+  // ── Besatzung row ──
+  const besY = infoY + infoH;
+  const besH = 14;
+  doc.rect(mL, besY, usable, besH);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.text("Besatzung", mL + 2, besY + 4.5);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.text("Name / Personalnr.:", mL + 24, besY + 4.5);
+  doc.setFontSize(10);
+  doc.text(besatzung || "", mL + 2, besY + 11);
+
+  // ── Main table ──
+  const tY = besY + besH + 6;
+  // Column widths matching original proportions: lfd.Nr | ILS Nr. | Patienten Name | Bemerkung | Handgeschriebenes Nadok
+  const cw = [14, 20, 38, usable - 14 - 20 - 38 - 28, 28];
+  const headerH = 16;
+  const rowH = 12;
+  const maxRows = 14;
+
+  // Table header
+  doc.setLineWidth(0.4);
+  doc.setDrawColor(0, 0, 0);
+
+  const headers = [
+    { t1: "lfd.Nr.", t2: null },
+    { t1: "ILS Nr.", t2: null },
+    { t1: "Patienten", t2: "Name" },
+    { t1: "Bemerkung", t2: null },
+    { t1: "Handgeschriebenes", t2: "Nadok" },
+  ];
+  const subtext = "zB: Begr\u00FCndung - Kostentr\u00E4ger (09,05/06,06,07,08...)";
+
+  let cx = mL;
+  for (let i = 0; i < cw.length; i++) {
+    doc.rect(cx, tY, cw[i], headerH);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.5);
+    doc.setTextColor(0, 0, 0);
+    if (headers[i].t2) {
+      doc.text(headers[i].t1, cx + 1.5, tY + 6);
+      doc.text(headers[i].t2, cx + 1.5, tY + 10.5);
+    } else {
+      doc.text(headers[i].t1, cx + 1.5, tY + 7);
+    }
+    // Bemerkung column subtext
+    if (i === 3) {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(5.5);
+      doc.setTextColor(80, 80, 80);
+      doc.text(subtext, cx + 1.5, tY + 13.5);
+    }
+    // Nadok column subtext
+    if (i === 4) {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(6);
+      doc.setTextColor(0, 0, 0);
+      doc.text("x f\u00FCr JA", cx + 1.5, tY + 14);
+    }
+    cx += cw[i];
+  }
+
+  // Table rows
+  for (let r = 0; r < maxRows; r++) {
+    const ry = tY + headerH + r * rowH;
+    const entry = entries[r];
+    cx = mL;
+
+    for (let c = 0; c < cw.length; c++) {
+      doc.setDrawColor(0, 0, 0);
+      doc.setLineWidth(0.3);
+      doc.rect(cx, ry, cw[c], rowH);
+
+      doc.setFont("helvetica", c === 0 ? "bold" : "normal");
+      doc.setFontSize(c === 0 ? 9 : 8.5);
+      doc.setTextColor(0, 0, 0);
+
+      let val = "";
+      if (c === 0) {
+        val = String(r + 1);
+        doc.text(val, cx + cw[c] / 2, ry + 7.5, { align: "center" });
+      } else if (entry) {
+        if (c === 1) val = entry.ilsNr || "";
+        else if (c === 2) val = entry.name || "";
+        else if (c === 3) val = entry.bemerkung || "";
+        else if (c === 4 && entry.nadok) val = "x";
+
+        if (c === 4 && val) {
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(11);
+          doc.text(val, cx + cw[c] / 2, ry + 8, { align: "center" });
+        } else if (c > 0) {
+          // Truncate if too long
+          const maxW = cw[c] - 3;
+          let txt = val;
+          while (doc.getTextWidth(txt) > maxW && txt.length > 0) {
+            txt = txt.slice(0, -1);
+          }
+          if (txt.length < val.length && txt.length > 0) txt = txt.slice(0, -1) + "\u2026";
+          doc.text(txt, cx + 1.5, ry + 7.5);
+        }
+      }
+      cx += cw[c];
+    }
+  }
+
+  // Checkbox column: draw small checkbox squares for each row
+  for (let r = 0; r < maxRows; r++) {
+    const ry = tY + headerH + r * rowH;
+    const cbx = mL + cw[0] + cw[1] + cw[2] + cw[3] + (cw[4] - 6) / 2 + 8;
+    const cby = ry + (rowH - 5) / 2;
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(0.3);
+    doc.rect(cbx, cby, 5, 5);
+    // If nadok, draw x inside
+    if (entries[r]?.nadok) {
+      doc.setFont("helvetica","bold");
+      doc.setFontSize(9);
+      doc.text("x", cbx + 2.5, cby + 4.2, { align: "center" });
+    }
+  }
+
+  // ── Footer text ──
+  const footY = tY + headerH + maxRows * rowH + 4;
+  doc.setFont("helvetica", "italic");
+  doc.setFontSize(6.5);
+  doc.setTextColor(120, 120, 120);
+  doc.text("Fakturaliste_neu_Stand_12/2018", mL, footY);
+
+  // Save
+  doc.save("Fakturaliste_" + (schicht||"Schicht") + "_" + dateStr.replace(/\./g,"-") + ".pdf");
+};
+
+// ── Setup Screen ──
+function SetupScreen({ onStart }) {
+  const [schicht, setSchicht] = useState("");
+  const [fahrzeug, setFahrzeug] = useState("");
+  const [besatzung, setBesatzung] = useState("");
+  const [focused, setFocused] = useState(null);
+  return (
+    <div style={{minHeight:"100dvh",background:C.bg,display:"flex",flexDirection:"column"}}>
+      <div style={{background:`linear-gradient(145deg,${C.red} 0%,${C.redDark} 100%)`,padding:"60px 24px 40px",textAlign:"center",position:"relative",overflow:"hidden"}}>
+        <div style={{position:"absolute",top:-40,right:-40,width:160,height:160,borderRadius:"50%",background:"rgba(255,255,255,0.06)"}}/>
+        <div style={{position:"absolute",bottom:-20,left:-20,width:100,height:100,borderRadius:"50%",background:"rgba(255,255,255,0.04)"}}/>
+        <div style={{width:64,height:64,borderRadius:16,background:"rgba(255,255,255,0.15)",backdropFilter:"blur(10px)",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 16px",fontSize:28}}>🚑</div>
+        <h1 style={{color:"#fff",fontSize:26,fontWeight:800,fontFamily:font,margin:0,letterSpacing:"-0.02em"}}>Fakturaliste</h1>
+        <p style={{color:"rgba(255,255,255,0.75)",fontSize:14,fontFamily:font,margin:"6px 0 0"}}>DRK Karlsruhe · Einsatzdokumentation</p>
+      </div>
+      <div style={{padding:"24px 20px",flex:1}}>
+        <div style={{background:C.card,borderRadius:16,padding:"24px 20px",boxShadow:C.shadow}}>
+          <h2 style={{fontSize:18,fontWeight:700,color:C.text,fontFamily:font,margin:"0 0 20px"}}>Schicht einrichten</h2>
+          <div style={{marginBottom:18}}>
+            <label style={labelStyle}>Schichtbezeichnung *</label>
+            <select style={{...inputStyle,borderColor:focused==="s"?C.red:C.border,boxShadow:focused==="s"?`0 0 0 3px ${C.redLight}`:"none",color:schicht?C.text:C.textSec}} value={schicht} onChange={e=>setSchicht(e.target.value)} onFocus={()=>setFocused("s")} onBlur={()=>setFocused(null)}>
+              <option value="" disabled>Schicht wählen…</option>
+              {SCHICHTEN.map(s=><option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+          <div style={{marginBottom:18}}>
+            <label style={labelStyle}>Fahrzeugkennung *</label>
+            <input style={{...inputStyle,borderColor:focused==="f"?C.red:C.border,boxShadow:focused==="f"?`0 0 0 3px ${C.redLight}`:"none"}} placeholder="z.B. RTW 1, KTW 3…" value={fahrzeug} onChange={e=>setFahrzeug(e.target.value)} onFocus={()=>setFocused("f")} onBlur={()=>setFocused(null)}/>
+          </div>
+          <div style={{marginBottom:24}}>
+            <label style={labelStyle}>Besatzung (Name / Personalnr.)</label>
+            <input style={{...inputStyle,borderColor:focused==="b"?C.red:C.border,boxShadow:focused==="b"?`0 0 0 3px ${C.redLight}`:"none"}} placeholder="Nachname, Vorname / Nr." value={besatzung} onChange={e=>setBesatzung(e.target.value)} onFocus={()=>setFocused("b")} onBlur={()=>setFocused(null)}/>
+          </div>
+          <button style={{...btnPrimary,opacity:schicht&&fahrzeug?1:0.4,pointerEvents:schicht&&fahrzeug?"auto":"none"}} onClick={()=>onStart({schicht,fahrzeug,besatzung})}>Schicht starten →</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Entry Form ──
+function EntryForm({ onAdd, onUpdate, onCancelEdit, count, editingEntry, editingIndex }) {
+  const isEditing = editingEntry != null;
+  const [ilsNr, setIlsNr] = useState("");
+  const [name, setName] = useState("");
+  const [bemerkung, setBemerkung] = useState("");
+  const [nadok, setNadok] = useState(false);
+  const [focused, setFocused] = useState(null);
+  const ilsRef = useRef(null);
+  const formRef = useRef(null);
+
+  useEffect(() => {
+    if (editingEntry) {
+      setIlsNr(editingEntry.ilsNr||""); setName(editingEntry.name||"");
+      setBemerkung(editingEntry.bemerkung||""); setNadok(editingEntry.nadok||false);
+      formRef.current?.scrollIntoView({behavior:"smooth",block:"start"});
+    } else {
+      setIlsNr(""); setName(""); setBemerkung(""); setNadok(false);
+    }
+  }, [editingEntry]);
+
+  const handleSubmit = () => {
+    if (!name.trim()) return;
+    const data = {ilsNr:ilsNr.trim(),name:name.trim(),bemerkung:bemerkung.trim(),nadok};
+    if (isEditing) onUpdate(editingIndex, data); else onAdd(data);
+    setIlsNr(""); setName(""); setBemerkung(""); setNadok(false);
+    if (!isEditing) ilsRef.current?.focus();
+  };
+
+  return (
+    <div ref={formRef} style={{background:C.card,borderRadius:16,padding:"20px",boxShadow:C.shadow,marginBottom:16,border:isEditing?`2px solid ${C.red}`:"2px solid transparent",transition:"border-color 0.2s"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:18}}>
+        <h3 style={{fontSize:16,fontWeight:700,color:isEditing?C.red:C.text,fontFamily:font,margin:0}}>{isEditing?"Einsatz bearbeiten":"Neuer Einsatz"}</h3>
+        <span style={{fontSize:12,fontWeight:600,color:C.red,background:C.redLight,padding:"4px 10px",borderRadius:20,fontFamily:font}}>#{isEditing?editingIndex+1:count+1}</span>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
+        <div>
+          <label style={labelStyle}>ILS Nr.</label>
+          <input ref={ilsRef} style={{...inputStyle,borderColor:focused==="i"?C.red:C.border,boxShadow:focused==="i"?`0 0 0 3px ${C.redLight}`:"none"}} placeholder="Einsatznr." value={ilsNr} onChange={e=>setIlsNr(e.target.value)} onFocus={()=>setFocused("i")} onBlur={()=>setFocused(null)}/>
+        </div>
+        <div>
+          <label style={labelStyle}>Handgeschr. Nadok</label>
+          <button onClick={()=>setNadok(!nadok)} style={{...inputStyle,display:"flex",alignItems:"center",justifyContent:"center",gap:8,cursor:"pointer",fontWeight:600,background:nadok?C.redLight:C.card,borderColor:nadok?C.red:C.border,color:nadok?C.red:C.textSec,height:48}}>
+            <span style={{width:22,height:22,borderRadius:6,border:`2px solid ${nadok?C.red:C.border}`,background:nadok?C.red:"transparent",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:14,fontWeight:800,transition:"all 0.2s"}}>{nadok?"✓":""}</span>
+            Ja
+          </button>
+        </div>
+      </div>
+      <div style={{marginBottom:12}}>
+        <label style={labelStyle}>Patienten Name *</label>
+        <input style={{...inputStyle,borderColor:focused==="n"?C.red:C.border,boxShadow:focused==="n"?`0 0 0 3px ${C.redLight}`:"none"}} placeholder="Nachname, Vorname" value={name} onChange={e=>setName(e.target.value)} onFocus={()=>setFocused("n")} onBlur={()=>setFocused(null)}/>
+      </div>
+      <div style={{marginBottom:18}}>
+        <label style={labelStyle}>Bemerkung</label>
+        <textarea style={{...inputStyle,minHeight:70,resize:"vertical",borderColor:focused==="m"?C.red:C.border,boxShadow:focused==="m"?`0 0 0 3px ${C.redLight}`:"none"}} placeholder="Kostenträger, Begründung…" value={bemerkung} onChange={e=>setBemerkung(e.target.value)} onFocus={()=>setFocused("m")} onBlur={()=>setFocused(null)}/>
+      </div>
+      {isEditing ? (
+        <div style={{display:"flex",gap:10}}>
+          <button style={{...btnPrimary,flex:1,background:C.textSec,fontSize:15}} onClick={()=>{setIlsNr("");setName("");setBemerkung("");setNadok(false);onCancelEdit();}}>Abbrechen</button>
+          <button style={{...btnPrimary,flex:2,opacity:name.trim()?1:0.4,pointerEvents:name.trim()?"auto":"none"}} onClick={handleSubmit}>Speichern ✓</button>
+        </div>
+      ) : (
+        <button style={{...btnPrimary,opacity:name.trim()?1:0.4,pointerEvents:name.trim()?"auto":"none"}} onClick={handleSubmit}>Einsatz hinzufügen +</button>
+      )}
+    </div>
+  );
+}
+
+// ── Entry Card ──
+function EntryCard({ entry, index, onDelete, onEdit, isActive }) {
+  return (
+    <div onClick={()=>onEdit(index)} style={{background:C.card,borderRadius:14,padding:"14px 16px",boxShadow:C.shadow,display:"flex",alignItems:"flex-start",gap:14,animation:"slideIn 0.3s ease-out",cursor:"pointer",border:isActive?`2px solid ${C.red}`:"2px solid transparent",transition:"border-color 0.2s",WebkitTapHighlightColor:"transparent"}}>
+      <div style={{minWidth:36,height:36,borderRadius:10,background:C.redLight,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:C.red,fontFamily:font}}>{index+1}</div>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontSize:15,fontWeight:700,color:C.text,fontFamily:font,marginBottom:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{entry.name}</div>
+        {entry.ilsNr && <div style={{fontSize:12,color:C.textSec,fontFamily:font}}>ILS: {entry.ilsNr}</div>}
+        {entry.bemerkung && <div style={{fontSize:12,color:C.textSec,fontFamily:font,marginTop:4,lineHeight:1.4,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>{entry.bemerkung}</div>}
+        <div style={{display:"flex",gap:8,marginTop:6,alignItems:"center"}}>
+          {entry.nadok && <span style={{fontSize:10,fontWeight:700,color:C.red,background:C.redLight,padding:"2px 8px",borderRadius:6,fontFamily:font}}>NADOK: Ja</span>}
+          <span style={{fontSize:10,color:"#bbb",fontFamily:font,marginLeft:"auto"}}>Tippen zum Bearbeiten</span>
+        </div>
+      </div>
+      <button onClick={e=>{e.stopPropagation();onDelete(index)}} style={{background:"none",border:"none",color:"#ccc",fontSize:18,cursor:"pointer",padding:"4px 8px",borderRadius:8}}>✕</button>
+    </div>
+  );
+}
+
+// ── Main Screen ──
+function MainScreen({ config, onFinish }) {
+  const [entries, setEntries] = useState([]);
+  const [editingIndex, setEditingIndex] = useState(null);
+  const addEntry = e => { if(entries.length<14) setEntries([...entries,e]); };
+  const updateEntry = (i,d) => { setEntries(entries.map((e,j)=>j===i?d:e)); setEditingIndex(null); };
+  const deleteEntry = i => {
+    setEntries(entries.filter((_,j)=>j!==i));
+    if(editingIndex===i) setEditingIndex(null);
+    else if(editingIndex!=null&&i<editingIndex) setEditingIndex(editingIndex-1);
+  };
+  return (
+    <div style={{minHeight:"100dvh",background:C.bg,display:"flex",flexDirection:"column"}}>
+      <div style={{background:`linear-gradient(145deg,${C.red} 0%,${C.redDark} 100%)`,padding:"52px 20px 16px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <div>
+          <div style={{fontSize:11,color:"rgba(255,255,255,0.7)",fontFamily:font,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.05em"}}>{config.fahrzeug}</div>
+          <div style={{fontSize:20,fontWeight:800,color:"#fff",fontFamily:font,letterSpacing:"-0.01em"}}>{config.schicht}</div>
+        </div>
+        <div style={{background:"rgba(255,255,255,0.15)",borderRadius:12,padding:"8px 14px",textAlign:"center"}}>
+          <div style={{fontSize:22,fontWeight:800,color:"#fff",fontFamily:font}}>{entries.length}</div>
+          <div style={{fontSize:10,color:"rgba(255,255,255,0.7)",fontFamily:font,fontWeight:600}}>EINSÄTZE</div>
+        </div>
+      </div>
+      <div style={{padding:"16px 16px 120px",flex:1}}>
+        {(entries.length<14||editingIndex!=null) && <EntryForm onAdd={addEntry} onUpdate={updateEntry} onCancelEdit={()=>setEditingIndex(null)} count={entries.length} editingEntry={editingIndex!=null?entries[editingIndex]:null} editingIndex={editingIndex}/>}
+        {entries.length>0 && <>
+          <div style={{fontSize:13,fontWeight:600,color:C.textSec,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.04em",margin:"8px 4px 10px"}}>Erfasste Einsätze</div>
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {entries.map((e,i)=><EntryCard key={i} entry={e} index={i} onDelete={deleteEntry} onEdit={idx=>setEditingIndex(idx)} isActive={editingIndex===i}/>)}
+          </div>
+        </>}
+        {entries.length===0 && <div style={{textAlign:"center",padding:"40px 20px",color:C.textSec,fontFamily:font}}>
+          <div style={{fontSize:40,marginBottom:12}}>📋</div>
+          <div style={{fontSize:15,fontWeight:600}}>Noch keine Einsätze</div>
+          <div style={{fontSize:13,marginTop:4}}>Erfasse oben deinen ersten Einsatz</div>
+        </div>}
+      </div>
+      {entries.length>0 && <div style={{position:"fixed",bottom:0,left:0,right:0,padding:"12px 16px",paddingBottom:"max(12px, env(safe-area-inset-bottom))",background:"rgba(247,247,248,0.92)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",borderTop:`1px solid ${C.border}`}}>
+        <button style={btnSecondary} onClick={async()=>{await generatePDF(config.schicht,config.fahrzeug,config.besatzung,entries);onFinish();}}>Schicht abschließen · PDF erstellen ↓</button>
+      </div>}
+      <style>{`@keyframes slideIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}`}</style>
+    </div>
+  );
+}
+
+// ── Success Screen ──
+function SuccessScreen({ onReset }) {
+  return (
+    <div style={{minHeight:"100dvh",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:32,textAlign:"center"}}>
+      <div style={{width:80,height:80,borderRadius:24,background:C.accentLight,display:"flex",alignItems:"center",justifyContent:"center",fontSize:36,marginBottom:24}}>✅</div>
+      <h2 style={{fontSize:24,fontWeight:800,color:C.text,fontFamily:font,margin:"0 0 8px"}}>PDF erstellt!</h2>
+      <p style={{fontSize:15,color:C.textSec,fontFamily:font,margin:"0 0 32px",lineHeight:1.5}}>Die Fakturaliste wurde als PDF heruntergeladen und kann jetzt weitergegeben werden.</p>
+      <button style={{...btnPrimary,maxWidth:280}} onClick={onReset}>Neue Schicht starten</button>
+    </div>
+  );
+}
+
+// ── App ──
+function App() {
+  const [screen, setScreen] = useState("setup");
+  const [config, setConfig] = useState(null);
+  return (
+    <div style={{maxWidth:430,margin:"0 auto",fontFamily:font}}>
+      {screen==="setup" && <SetupScreen onStart={c=>{setConfig(c);setScreen("main")}}/>}
+      {screen==="main" && <MainScreen config={config} onFinish={()=>setScreen("success")}/>}
+      {screen==="success" && <SuccessScreen onReset={()=>{setConfig(null);setScreen("setup")}}/>}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
