@@ -55,7 +55,7 @@ const btnSecondary = { ...btnPrimary, background: C.accent };
 
 const SCHICHTEN = ["1A","1B","1C","1D","1E","1F","1N","1P","1T","1V","1U","1Z"];
 
-// ── PDF Generation with jsPDF (exact replica of original Fakturaliste) ──
+// ── PDF Generation with jsPDF (pixel-perfect replica of original Fakturaliste) ──
 const loadJsPDF = () => new Promise((resolve, reject) => {
   if (window.jspdf) return resolve();
   const s = document.createElement("script");
@@ -68,206 +68,250 @@ const generatePDF = async (schicht, fahrzeug, besatzung, entries) => {
   await loadJsPDF();
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-  const W = 210, H = 297;
-  const mL = 18, mR = 18;
+  const W = 210;
+  // Margins matching original: ~20mm left, ~15mm right
+  const mL = 20;
+  const mR = 15;
   const usable = W - mL - mR;
+  const lw = 0.5; // standard line width matching original thick black borders
   const now = new Date();
   const dateStr = now.toLocaleDateString("de-DE",{day:"2-digit",month:"2-digit",year:"numeric"});
 
-  // Helper: draw a red cross (simplified DRK logo)
-  const drawCross = (x, y, size) => {
-    const arm = size * 0.3;
-    const off = (size - arm) / 2;
-    doc.setFillColor(227, 6, 19);
-    // vertical bar
-    doc.rect(x + off, y, arm, size, "F");
-    // horizontal bar
-    doc.rect(x, y + off, size, arm, "F");
-  };
-
-  // ── Header area ──
-  const logoSize = 22;
-  drawCross(mL, 14, logoSize);
-
-  // "Deutsches Rotes Kreuz" text next to cross
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(14);
-  doc.setTextColor(0, 0, 0);
-  doc.text("Deutsches", mL + logoSize + 4, 20);
-  doc.text("Rotes", mL + logoSize + 4, 26);
-  doc.text("Kreuz", mL + logoSize + 4, 32);
-
-  // Right-side header text
-  const headerX = mL + 70;
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
-  doc.text("DRK-Kreisverband", headerX, 20);
-  doc.text("Karlsruhe e.V.", headerX, 25);
-  doc.text("Krankentransport / Rettungsdienst", headerX, 30);
-
-  // ── Info row: Datum | FZG | Schichtbezeichnung ──
-  const infoY = 42;
-  const infoH = 12;
-  const col1 = 50, col2 = 45, col3 = usable - col1 - col2;
   doc.setDrawColor(0, 0, 0);
-  doc.setLineWidth(0.4);
+  doc.setLineWidth(lw);
 
-  // Datum box
-  doc.rect(mL, infoY, col1, infoH);
+  // ════════════════════════════════════════
+  // HEADER: DRK Logo area (top-left cross + text)
+  // ════════════════════════════════════════
+  // Red cross - draw as two overlapping rectangles
+  const crossX = mL, crossY = 12, crossSize = 24;
+  const armW = crossSize * 0.32, armOff = (crossSize - armW) / 2;
+  doc.setFillColor(227, 6, 19);
+  doc.rect(crossX + armOff, crossY, armW, crossSize, "F"); // vertical
+  doc.rect(crossX, crossY + armOff, crossSize, armW, "F"); // horizontal
+
+  // "Deutsches Rotes Kreuz" - bold, black, stacked next to cross
+  const drkTextX = crossX + crossSize + 5;
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(9);
-  doc.text("Datum:", mL + 2, infoY + 4.5);
+  doc.setTextColor(0, 0, 0);
+  doc.setFontSize(15);
+  doc.text("Deutsches", drkTextX, crossY + 7);
+  doc.text("Rotes", drkTextX, crossY + 13.5);
+  doc.text("Kreuz", drkTextX, crossY + 20);
+
+  // Right header: "DRK-Kreisverband / Karlsruhe e.V. / Krankentransport..."
+  const rhX = 105;
   doc.setFont("helvetica", "normal");
   doc.setFontSize(10);
-  doc.text(dateStr, mL + 2, infoY + 10);
+  doc.text("DRK-Kreisverband", rhX, crossY + 6);
+  doc.text("Karlsruhe e.V.", rhX, crossY + 11);
+  doc.text("Krankentransport / Rettungsdienst", rhX, crossY + 16);
+
+  // ════════════════════════════════════════
+  // HORIZONTAL LINE under header
+  // ════════════════════════════════════════
+  const lineY = 42;
+  doc.setLineWidth(0.6);
+  doc.line(mL, lineY, W - mR, lineY);
+
+  // ════════════════════════════════════════
+  // INFO ROW: Datum: | FZG: | Schichtbezeichnung:
+  // ════════════════════════════════════════
+  const infoY = lineY + 1;
+  // Labels above the boxes
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.text("Datum:", mL, infoY + 3.5);
+
+  const fzgX = mL + 55;
+  doc.text("FZG:", fzgX, infoY + 3.5);
+
+  const schichtX = fzgX + 42;
+  doc.text("Schichtbezeichnung:", schichtX, infoY + 3.5);
+
+  // Value boxes underneath labels
+  const boxY = infoY + 5;
+  const boxH = 12;
+  const datumW = 53;
+  const fzgW = 40;
+  const schichtW = usable - datumW - fzgW - 2; // -2 for gaps
+
+  doc.setLineWidth(lw);
+  // Datum box
+  doc.rect(mL, boxY, datumW, boxH);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(13);
+  doc.text(dateStr, mL + 3, boxY + 8.5);
 
   // FZG box
-  doc.rect(mL + col1, infoY, col2, infoH);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(9);
-  doc.text("FZG:", mL + col1 + 2, infoY + 4.5);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
-  doc.text(fahrzeug || "", mL + col1 + 2, infoY + 10);
+  doc.rect(fzgX, boxY, fzgW, boxH);
+  doc.setFontSize(13);
+  doc.text(fahrzeug || "", fzgX + 3, boxY + 8.5);
 
   // Schichtbezeichnung box
-  doc.rect(mL + col1 + col2, infoY, col3, infoH);
+  doc.rect(schichtX, boxY, schichtW, boxH);
+  doc.setFontSize(13);
+  doc.text(schicht || "", schichtX + 3, boxY + 8.5);
+
+  // ════════════════════════════════════════
+  // BESATZUNG ROW
+  // ════════════════════════════════════════
+  const besLabelY = boxY + boxH + 2;
   doc.setFont("helvetica", "bold");
   doc.setFontSize(9);
-  doc.text("Schichtbezeichnung:", mL + col1 + col2 + 2, infoY + 4.5);
+  doc.text("Besatzung", mL, besLabelY + 3.5);
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
-  doc.text(schicht || "", mL + col1 + col2 + 2, infoY + 10);
+  doc.setFontSize(7.5);
+  doc.text("Name / Personalnr.:", mL + 21, besLabelY + 3.5);
 
-  // ── Besatzung row ──
-  const besY = infoY + infoH;
-  const besH = 14;
-  doc.rect(mL, besY, usable, besH);
+  const besBoxY = besLabelY + 5;
+  const besBoxH = 14;
+  doc.setLineWidth(lw);
+  doc.rect(mL, besBoxY, usable, besBoxH);
+  // Besatzung value - centered, large font like original
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(9);
-  doc.text("Besatzung", mL + 2, besY + 4.5);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
-  doc.text("Name / Personalnr.:", mL + 24, besY + 4.5);
-  doc.setFontSize(10);
-  doc.text(besatzung || "", mL + 2, besY + 11);
+  doc.setFontSize(18);
+  doc.text(besatzung || "", mL + usable / 2, besBoxY + 10, { align: "center" });
 
-  // ── Main table ──
-  const tY = besY + besH + 6;
-  // Column widths matching original proportions: lfd.Nr | ILS Nr. | Patienten Name | Bemerkung | Handgeschriebenes Nadok
-  const cw = [14, 20, 38, usable - 14 - 20 - 38 - 28, 28];
-  const headerH = 16;
-  const rowH = 12;
-  const maxRows = 14;
+  // ════════════════════════════════════════
+  // MAIN TABLE
+  // ════════════════════════════════════════
+  const tY = besBoxY + besBoxH + 4;
 
-  // Table header
-  doc.setLineWidth(0.4);
-  doc.setDrawColor(0, 0, 0);
+  // Column widths precisely matching original proportions
+  // Original shows: narrow lfd.Nr | medium ILS Nr. | medium Patienten Name | wide Bemerkung | narrow Nadok with checkbox
+  const c1 = 13;   // lfd.Nr.
+  const c2 = 20;   // ILS Nr.
+  const c3 = 35;   // Patienten Name
+  const c5 = 28;   // Handgeschriebenes Nadok (includes checkbox area)
+  const c4 = usable - c1 - c2 - c3 - c5; // Bemerkung (rest)
+  const cw = [c1, c2, c3, c4, c5];
 
-  const headers = [
-    { t1: "lfd.Nr.", t2: null },
-    { t1: "ILS Nr.", t2: null },
-    { t1: "Patienten", t2: "Name" },
-    { t1: "Bemerkung", t2: null },
-    { t1: "Handgeschriebenes", t2: "Nadok" },
-  ];
-  const subtext = "zB: Begr\u00FCndung - Kostentr\u00E4ger (09,05/06,06,07,08...)";
+  // Table header row
+  const thH = 20; // header is taller to fit multi-line text
+  doc.setLineWidth(lw);
 
+  // Draw header cells
   let cx = mL;
   for (let i = 0; i < cw.length; i++) {
-    doc.rect(cx, tY, cw[i], headerH);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(7.5);
-    doc.setTextColor(0, 0, 0);
-    if (headers[i].t2) {
-      doc.text(headers[i].t1, cx + 1.5, tY + 6);
-      doc.text(headers[i].t2, cx + 1.5, tY + 10.5);
-    } else {
-      doc.text(headers[i].t1, cx + 1.5, tY + 7);
-    }
-    // Bemerkung column subtext
-    if (i === 3) {
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(5.5);
-      doc.setTextColor(80, 80, 80);
-      doc.text(subtext, cx + 1.5, tY + 13.5);
-    }
-    // Nadok column subtext
-    if (i === 4) {
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(6);
-      doc.setTextColor(0, 0, 0);
-      doc.text("x f\u00FCr JA", cx + 1.5, tY + 14);
-    }
+    doc.rect(cx, tY, cw[i], thH);
     cx += cw[i];
   }
 
-  // Table rows
+  // Header text
+  cx = mL;
+  doc.setTextColor(0, 0, 0);
+
+  // lfd.Nr.
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.text("lfd.Nr.", cx + cw[0] / 2, tY + 11, { align: "center" });
+  cx += cw[0];
+
+  // ILS Nr.
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.text("ILS Nr.", cx + 2, tY + 11);
+  cx += cw[1];
+
+  // Patienten / Name
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.text("Patienten", cx + 2, tY + 7);
+  doc.setFontSize(10);
+  doc.text("Name", cx + 2, tY + 13);
+  cx += cw[2];
+
+  // Bemerkung + subtext
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.text("Bemerkung", cx + 2, tY + 7);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(5.5);
+  doc.text("zB: Begr\u00FCndung - Kostentr\u00E4ger (09,05/06,06,07,08...)", cx + 2, tY + 13);
+  cx += cw[3];
+
+  // Handgeschriebenes Nadok + x für JA
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(6);
+  doc.text("Handgeschriebenes", cx + 1, tY + 5);
+  doc.text("Nadok", cx + 1, tY + 9.5);
+  doc.setFontSize(6);
+  doc.text("x f\u00FCr JA", cx + cw[4] - 2, tY + 16, { align: "right" });
+
+  // ── Table data rows ──
+  const rowH = 14; // taller rows matching original
+  const maxRows = 14;
+
   for (let r = 0; r < maxRows; r++) {
-    const ry = tY + headerH + r * rowH;
+    const ry = tY + thH + r * rowH;
     const entry = entries[r];
     cx = mL;
 
+    // Draw all cell borders
+    doc.setLineWidth(lw);
     for (let c = 0; c < cw.length; c++) {
-      doc.setDrawColor(0, 0, 0);
-      doc.setLineWidth(0.3);
       doc.rect(cx, ry, cw[c], rowH);
-
-      doc.setFont("helvetica", c === 0 ? "bold" : "normal");
-      doc.setFontSize(c === 0 ? 9 : 8.5);
-      doc.setTextColor(0, 0, 0);
-
-      let val = "";
-      if (c === 0) {
-        val = String(r + 1);
-        doc.text(val, cx + cw[c] / 2, ry + 7.5, { align: "center" });
-      } else if (entry) {
-        if (c === 1) val = entry.ilsNr || "";
-        else if (c === 2) val = entry.name || "";
-        else if (c === 3) val = entry.bemerkung || "";
-        else if (c === 4 && entry.nadok) val = "x";
-
-        if (c === 4 && val) {
-          doc.setFont("helvetica", "bold");
-          doc.setFontSize(11);
-          doc.text(val, cx + cw[c] / 2, ry + 8, { align: "center" });
-        } else if (c > 0) {
-          // Truncate if too long
-          const maxW = cw[c] - 3;
-          let txt = val;
-          while (doc.getTextWidth(txt) > maxW && txt.length > 0) {
-            txt = txt.slice(0, -1);
-          }
-          if (txt.length < val.length && txt.length > 0) txt = txt.slice(0, -1) + "\u2026";
-          doc.text(txt, cx + 1.5, ry + 7.5);
-        }
-      }
       cx += cw[c];
     }
-  }
 
-  // Checkbox column: draw small checkbox squares for each row
-  for (let r = 0; r < maxRows; r++) {
-    const ry = tY + headerH + r * rowH;
-    const cbx = mL + cw[0] + cw[1] + cw[2] + cw[3] + (cw[4] - 6) / 2 + 8;
-    const cby = ry + (rowH - 5) / 2;
-    doc.setDrawColor(0, 0, 0);
-    doc.setLineWidth(0.3);
-    doc.rect(cbx, cby, 5, 5);
-    // If nadok, draw x inside
-    if (entries[r]?.nadok) {
-      doc.setFont("helvetica","bold");
-      doc.setFontSize(9);
-      doc.text("x", cbx + 2.5, cby + 4.2, { align: "center" });
+    cx = mL;
+
+    // lfd.Nr. - bold number
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.text(String(r + 1), cx + cw[0] / 2, ry + 9.5, { align: "center" });
+    cx += cw[0];
+
+    if (entry) {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+
+      // ILS Nr.
+      doc.text(entry.ilsNr || "", cx + 2, ry + 9.5);
+      cx += cw[1];
+
+      // Patienten Name
+      let nameTxt = entry.name || "";
+      const nameMaxW = cw[2] - 4;
+      while (doc.getTextWidth(nameTxt) > nameMaxW && nameTxt.length > 1) nameTxt = nameTxt.slice(0,-1);
+      if (nameTxt.length < (entry.name||"").length) nameTxt += "\u2026";
+      doc.text(nameTxt, cx + 2, ry + 9.5);
+      cx += cw[2];
+
+      // Bemerkung
+      let bemTxt = entry.bemerkung || "";
+      const bemMaxW = cw[3] - 4;
+      while (doc.getTextWidth(bemTxt) > bemMaxW && bemTxt.length > 1) bemTxt = bemTxt.slice(0,-1);
+      if (bemTxt.length < (entry.bemerkung||"").length) bemTxt += "\u2026";
+      doc.text(bemTxt, cx + 2, ry + 9.5);
+      cx += cw[3];
+    } else {
+      cx += cw[1] + cw[2] + cw[3];
+    }
+
+    // Nadok checkbox - small rectangle on the right side of the nadok column
+    const cbSize = 5.5;
+    const cbx = cx + cw[4] - cbSize - 3;
+    const cby = ry + (rowH - cbSize) / 2;
+    doc.setLineWidth(0.4);
+    doc.rect(cbx, cby, cbSize, cbSize);
+
+    if (entry?.nadok) {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      doc.text("x", cbx + cbSize / 2, cby + 4.5, { align: "center" });
     }
   }
 
-  // ── Footer text ──
-  const footY = tY + headerH + maxRows * rowH + 4;
-  doc.setFont("helvetica", "italic");
-  doc.setFontSize(6.5);
-  doc.setTextColor(120, 120, 120);
-  doc.text("Fakturaliste_neu_Stand_12/2018", mL, footY);
+  // ════════════════════════════════════════
+  // FOOTER
+  // ════════════════════════════════════════
+  const footY = tY + thH + maxRows * rowH + 30;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor(0, 0, 0);
+  doc.text("Fakturaliste_neu_Stand_12/2018", W / 2, footY, { align: "center" });
 
   // Save
   doc.save("Fakturaliste_" + (schicht||"Schicht") + "_" + dateStr.replace(/\./g,"-") + ".pdf");
