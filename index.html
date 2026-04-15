@@ -270,8 +270,9 @@ function MainScreen({ config, onFinish }) {
   // Auto-save entries on every change
   useEffect(() => { try { localStorage.setItem("drk_entries", JSON.stringify(entries)); } catch {} }, [entries]);
 
-  const addEntry = e => { if(entries.length<14) setEntries([...entries,e]); };
-  const updateEntry = (i,d) => { setEntries(entries.map((e,j)=>j===i?d:e)); setEditingIndex(null); };
+  const sortByIlsNr = arr => [...arr].sort((a,b) => { const na=parseInt(a.ilsNr),nb=parseInt(b.ilsNr); if(!isNaN(na)&&!isNaN(nb)) return na-nb; return (a.ilsNr||"").localeCompare(b.ilsNr||""); });
+  const addEntry = e => { if(entries.length<14) setEntries(sortByIlsNr([...entries,e])); };
+  const updateEntry = (i,d) => { setEntries(sortByIlsNr(entries.map((e,j)=>j===i?d:e))); setEditingIndex(null); };
   const deleteEntry = i => {
     setEntries(entries.filter((_,j)=>j!==i));
     if(editingIndex===i) setEditingIndex(null);
@@ -312,12 +313,13 @@ function MainScreen({ config, onFinish }) {
 }
 
 // ── Success Screen ──
-function SuccessScreen({ onReset }) {
+function SuccessScreen({ onReset, onBack }) {
   return (
     <div style={{minHeight:"100dvh",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:32,textAlign:"center"}}>
       <div style={{width:80,height:80,borderRadius:24,background:C.accentLight,display:"flex",alignItems:"center",justifyContent:"center",fontSize:36,marginBottom:24}}>✅</div>
       <h2 style={{fontSize:24,fontWeight:800,color:C.text,fontFamily:font,margin:"0 0 8px"}}>PDF erstellt!</h2>
       <p style={{fontSize:15,color:C.textSec,fontFamily:font,margin:"0 0 32px",lineHeight:1.5}}>Die Fakturaliste wurde als PDF heruntergeladen und kann jetzt weitergegeben werden.</p>
+      <button style={{...btnSecondary,maxWidth:280,marginBottom:12}} onClick={onBack}>Zurück zu den Einsätzen</button>
       <button style={{...btnPrimary,maxWidth:280}} onClick={onReset}>Neue Schicht starten</button>
     </div>
   );
@@ -345,7 +347,7 @@ function App() {
     <div style={{maxWidth:430,margin:"0 auto",fontFamily:font}}>
       {screen==="setup" && <SetupScreen onStart={c=>{setConfig(c);setScreen("main")}}/>}
       {screen==="main" && config && <MainScreen config={config} onFinish={()=>setScreen("success")}/>}
-      {screen==="success" && <SuccessScreen onReset={handleReset}/>}
+      {screen==="success" && <SuccessScreen onReset={handleReset} onBack={()=>setScreen("main")}/>}
     </div>
   );
 }
